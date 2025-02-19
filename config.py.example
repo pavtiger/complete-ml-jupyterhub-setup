@@ -1,0 +1,5 @@
+WORKDIR_PATH = "/directory/for/files"
+ALLOWED_USERS = {'github_username'}
+ADMIN_USERS = {'github_username'}
+TEMPLATE_PATH = "./welcome.ipynb"
+
