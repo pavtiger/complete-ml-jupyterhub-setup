@@ -48,7 +48,8 @@ c.DockerSpawner.extra_create_kwargs.update({
 
 def create_dir_hook(spawner):
     username = spawner.user.name # get the username
-    user_path = os.path.join(WORKDIR_PATH, username)
+    user_path = os.path.join(WORKDIR_PATH, username, "workdir")
+    home_p = os.path.join('/workdir', username, "home")
 
     # Create a user dir from host connected to the main container
     container_path = os.path.join('/workdir', username)
@@ -58,12 +59,41 @@ def create_dir_hook(spawner):
         # still readable by other users on the system
         os.mkdir(container_path, 0o755)
 
+    inside_workdir_path = os.path.join('/workdir', username, "workdir")
+    if not os.path.exists(inside_workdir_path):
+        os.mkdir(inside_workdir_path, 0o755)
+
+    inside_home_path = os.path.join('/workdir', username, "home")
+    if not os.path.exists(inside_home_path):
+        os.mkdir(inside_home_path, 0o755)
+
     # copy template to the user directory
     shutil.copy(os.path.join('/workdir', TEMPLATE_PATH), os.path.join(container_path, TEMPLATE_PATH))
 
-    spawner.volumes = {
-        user_path : '/workdir'
+    home_folders = os.listdir(home_p)
+    print(home_folders)
+    # Main volume mapping
+    # volume_mapping = {
+    #     user_path : '/workdir'
+    # }
+    shared_path = os.path.join(WORKDIR_PATH, "shared")
+    volume_mapping = {
+        shared_path : '/workdir'
     }
+    # for home_folder in home_folders:  # Add custom user mounts to /home/jovyan
+    #     home_path = os.path.join(WORKDIR_PATH, username, "home", home_folder)
+    #     volume_mapping[home_path] = os.path.join("/home/jovyan", home_folder)
+
+    # Add shared conda mount (on the host)
+    conda_path = "/opt/anaconda3"
+    volume_mapping[conda_path] = os.path.join("/home/jovyan", "anaconda3")
+
+    # Add shared workdir (on NAS via NFS)
+    # shared_path = os.path.join('/workdir', "shared")
+    # volume_mapping[shared_path] = "/workdir/shared"
+
+    print(volume_mapping)
+    spawner.volumes = volume_mapping
 
 
 c.DockerSpawner.pre_spawn_hook = create_dir_hook
@@ -96,5 +126,5 @@ c.Authenticator.allow_existing_users = True
 c.Authenticator.allowed_users = ALLOWED_USERS
 c.Authenticator.admin_users = ADMIN_USERS
 
-c.Spawner.args = ['--NotebookApp.default_url=/welcome.ipynb']
+# c.Spawner.args = ['--NotebookApp.default_url=/welcome.ipynb']
 
