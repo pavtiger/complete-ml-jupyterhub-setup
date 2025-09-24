@@ -1,0 +1,8 @@
+users:
+  user_b:
+    datasets: [dataset_1, dataset_2]
+    teams: [personal, team1, team2]
+  user_a:
+    datasets: [dataset_1]
+    teams: [personal]
+

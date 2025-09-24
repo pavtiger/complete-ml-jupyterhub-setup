@@ -1,0 +1,20 @@
+users:
+  pavtiger:
+    datasets: [ABC-dataset, Thingi10K, OpenShape, ModelNet40, ShapeNetCore, ShapeNetCore-gltf, GoogleScannedObjects, ShapeGlot, NuScenes, SemanticKITTI, ShapeTalk, cadrile]
+    teams: [pavtiger, cad, lidar]
+  justdprroz:
+    datasets: [ShapeTalk, Thingi10K]
+    teams: [cad]
+  aisatsanz:
+    datasets: [ABC-dataset, Thingi10K, OpenShape, ModelNet40, ShapeNetCore, ShapeNetCore-gltf, GoogleScannedObjects]
+    teams: [cad]
+  artsel288:
+    datasets: [ABC-dataset, Thingi10K, OpenShape, ModelNet40, ShapeNetCore, ShapeNetCore-gltf, GoogleScannedObjects, NuScenes, SemanticKITTI]
+    teams: [cad, lidar]
+  murkat-git:
+    datasets: [SemanticKITTI, NuScenes]
+    teams: [lidar]
+  kyle-puchkov:
+    datasets: [SemanticKITTI, NuScenes]
+    teams: [lidar]
+  
