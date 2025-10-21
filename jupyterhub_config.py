@@ -1,7 +1,8 @@
 c = get_config()
 
 from dockerspawner import DockerSpawner
-import os
+import os, yaml
+import re
 import sys
 import shutil
 from jupyterhub.auth import PAMAuthenticator
@@ -20,14 +21,25 @@ from jupyter_client.localinterfaces import public_ips
 c.JupyterHub.hub_ip = public_ips()[0]
 
 # Set the Docker image to be used for user containers (prebuilt in this repository)
-c.DockerSpawner.image = 'jupyter_custom_notebook'
+DATASETS_ROOT = "/mnt/shuttle/datasets"          # host path with all datasets
+DATASETS_MOUNT_ROOT = "/workdir/datasets"        # path inside user containers
+WORKDIR_MOUNT_ROOT = "/workdir"
+USER_DATASETS_FILE = "/srv/jupyterhub/configs/user_config.yml"
+
+c.DockerSpawner.allowed_images = {
+    "(default) cuda12.4.1-cudnn-devel-ubuntu22.04-torch2.5.1-py3.11": "jupyter_custom_notebook:cuda12.4.1-cudnn-devel-ubuntu22.04-torch2.5.1-py3.11",
+    "cuda11.8.0-cudnn8-devel-ubuntu22.04-torch2.2.2-py3.9": "jupyter_custom_notebook:cuda11.8.0-cudnn8-devel-ubuntu22.04-torch2.2.2-py3.9",
+    "cuda11.1.1-cudnn8-devel-ubuntu20.04-torch1.10.1-py3.8": "jupyter_custom_notebook:cuda11.1.1-cudnn8-devel-ubuntu20.04-torch1.10.1-py3.8",
+    "cuda11.8.0-cudnn8-devel-ubuntu22.04-torch2.4.0-py3.9": "jupyter_custom_notebook:cuda11.8.0-cudnn8-devel-ubuntu22.04-torch2.4.0-py3.9",
+#    "cadrille": "cadrille"
+}
 c.DockerSpawner.default_url = "/lab"
 c.DockerSpawner.network_name = 'jupyterhub'
 c.DockerSpawner.notebook_dir = '/workdir'
 c.DockerSpawner.extra_host_config = {
     'runtime': 'nvidia',
     "shm_size": "16g",
-	"port_bindings": {
+    "port_bindings": {
         6006: 6006
     }
 }
@@ -36,20 +48,78 @@ c.DockerSpawner.extra_host_config = {
 c.JupyterHub.hub_ip = "0.0.0.0"
 c.JupyterHub.hub_port = 8888
 c.Spawner.start_timeout = 1000
-
-# Automatically create home directories for each user
 c.DockerSpawner.remove = False
 
 # Docker options (modify as per your requirements)
 c.DockerSpawner.extra_create_kwargs.update({
     'user': 'root',  # Ensure root user can set permissions
 })
+# def image_slug(image_name: str) -> str:
+#     """Return a short safe slug for the docker image name."""
+#     return image_name.split(":")[-1].replace(".", "_").replace("-", "_")
+# 
+# def name_template(spawner):
+#     username = spawner.user.name
+#     img = spawner.image  # e.g. jupyter_custom_notebook:cuda12.4.1-...
+#     slug = image_slug(img)
+#     # e.g. jupyter-<user>-cuda12_4_1_cudnn_devel_ubuntu22_04_torch2_5_1_py3_11
+#     return f"jupyter-{username}-{slug}"
 
+
+_slug_re = re.compile(r'[^a-zA-Z0-9_.-]+')  # allowed by Docker names
+
+def _slug(s: str, maxlen=80) -> str:
+    s = _slug_re.sub('_', s)
+    s = s.strip('_.-')
+    return (s or 'image')[:maxlen]
+
+class ImageNamedDockerSpawner(DockerSpawner):
+    def template_namespace(self):
+        ns = super().template_namespace()
+        img = getattr(self, "image", "") or ""
+        tag = img.split(":")[-1] if ":" in img else img
+        ns.update({
+            "image_tag": _slug(tag),   # e.g. cuda12_4_1_cudnn_devel_ubuntu22_04_torch2_5_1_py3_11
+            "image_full": _slug(img),  # full image ref if you ever want it
+        })
+        return ns
+
+
+c.JupyterHub.spawner_class = ImageNamedDockerSpawner
+
+# If you use named servers (you do), include {servername} for uniqueness
+c.DockerSpawner.container_name_template = "jupyter-{username}-{servername}-{image_tag}"
+
+# c.DockerSpawner.container_name_template = name_template
+
+def _load_user_config():
+    """
+    Returns {username: [relative_dataset_paths,...]}.
+    Unknown/missing file -> {}.
+    """
+    try:
+        with open(USER_DATASETS_FILE, "r") as f:
+            cfg = yaml.safe_load(f) or {}
+        return (cfg.get("users") or {})
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print(f"[datasets] failed to read {USER_DATASETS_FILE}: {e}")
+        return {}
+
+def _safe_under(base: str, rel: str) -> str | None:
+    """
+    Join and ensure the result stays under `base` (guards against .. traversal).
+    """
+    p = os.path.normpath(os.path.join(base, rel))
+    return p if os.path.commonpath([base, p]) == os.path.normpath(base) else None
 
 def create_dir_hook(spawner):
     username = spawner.user.name # get the username
-    user_path = os.path.join(WORKDIR_PATH, username, "workdir")
-    home_p = os.path.join('/workdir', username, "home")
+    home_p = os.path.join('/workdir', "homes", username)
+    if not os.path.exists(home_p):
+        os.mkdir(home_p, 0o755)
+        os.mkdir(os.path.join(home_p, ".ssh"), 0o755)
 
     # Create a user dir from host connected to the main container
     container_path = os.path.join('/workdir', username)
@@ -63,36 +133,65 @@ def create_dir_hook(spawner):
     if not os.path.exists(inside_workdir_path):
         os.mkdir(inside_workdir_path, 0o755)
 
-    inside_home_path = os.path.join('/workdir', username, "home")
-    if not os.path.exists(inside_home_path):
-        os.mkdir(inside_home_path, 0o755)
-
     # copy template to the user directory
-    shutil.copy(os.path.join('/workdir', TEMPLATE_PATH), os.path.join(container_path, TEMPLATE_PATH))
+    # shutil.copy(os.path.join('/workdir', TEMPLATE_PATH), os.path.join(container_path, TEMPLATE_PATH))
 
     home_folders = os.listdir(home_p)
-    print(home_folders)
+
     # Main volume mapping
-    # volume_mapping = {
-    #     user_path : '/workdir'
-    # }
-    shared_path = os.path.join(WORKDIR_PATH, "shared")
-    volume_mapping = {
-        shared_path : '/workdir'
-    }
-    # for home_folder in home_folders:  # Add custom user mounts to /home/jovyan
-    #     home_path = os.path.join(WORKDIR_PATH, username, "home", home_folder)
-    #     volume_mapping[home_path] = os.path.join("/home/jovyan", home_folder)
+    volume_mapping = {}
 
     # Add shared conda mount (on the host)
     conda_path = "/opt/anaconda3"
     volume_mapping[conda_path] = os.path.join("/home/jovyan", "anaconda3")
 
-    # Add shared workdir (on NAS via NFS)
-    # shared_path = os.path.join('/workdir', "shared")
-    # volume_mapping[shared_path] = "/workdir/shared"
+    cfg = _load_user_config()
+    print(cfg)
 
-    print(volume_mapping)
+    # workdir mounts
+    requested = (cfg.get(username, {}) or {}).get("teams", [])
+    for rel_ds in requested:
+        print("rel_ds", rel_ds, flush=True)
+        host_ds = _safe_under(WORKDIR_PATH, rel_ds)
+        print("host_ds", host_ds, flush=True)
+        if not host_ds:
+            print(f"[teams] skipped unsafe path '{rel_ds}' for {username}")
+            continue
+        # if not os.path.isdir(host_ds):
+        #     print(f"[teams] missing on host: {host_ds} (user {username})")
+        #     continue
+
+        container_target = os.path.join(WORKDIR_MOUNT_ROOT, rel_ds)
+        volume_mapping[host_ds] = container_target
+
+
+    # dataset management
+    requested = (cfg.get(username, {}) or {}).get("datasets", [])
+    for rel_ds in requested:
+        # print("rel_ds", rel_ds, flush=True)
+        host_ds = _safe_under(DATASETS_ROOT, rel_ds)
+        # print("host_ds", host_ds, flush=True)
+        if not host_ds:
+            print(f"[datasets] skipped unsafe path '{rel_ds}' for {username}")
+            continue
+        if not os.path.isdir(host_ds):
+            print(f"[datasets] missing on host: {host_ds} (user {username})")
+            continue
+
+        container_target = os.path.join(DATASETS_MOUNT_ROOT, rel_ds)
+        print(container_target, flush=True)
+        volume_mapping[host_ds] = container_target
+
+        # If you want read-only instead, switch to the 'bind/mode' form everywhere:
+        # volume_mapping[host_ds] = {"bind": container_target, "mode": "ro"}
+
+    # home directories like .ssh
+    for home_folder in home_folders:  # Add custom user mounts to /home/jovyan
+        print(home_folder, flush=True)
+        home_path = os.path.join(WORKDIR_PATH, "homes", username, home_folder)
+        volume_mapping[home_path] = os.path.join("/home/jovyan", home_folder)
+
+    print("VOLUME_MAPPING", volume_mapping, flush=True)
     spawner.volumes = volume_mapping
 
 

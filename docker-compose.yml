@@ -1,0 +1,31 @@
+services:
+  hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pavtiger/jupyterhub
+    env_file: .env
+    container_name: master-jupyterhub
+    restart: unless-stopped
+    ports:
+      - "8006:8000"
+    environment:
+      # Make the Docker socket visible and tell libs to use it
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      # (Optional) pass network/image defaults that your jupyterhub_config.py can read
+      - JUPYTERHUB_DOCKER_NETWORK=jupyterhub
+    volumes:
+      # Hub state/config/logs (persist if you want SQLite state etc.)
+      - /mnt/shuttle:/mnt/shuttle  # needed for dataset checks
+      - /mnt/services/jupyter-workdir:/workdir  # jupyterhub needs to read and write some files in the workdir before start
+      - ./configs:/srv/jupyterhub/configs  # jupyterhub needs to read and write some files in the workdir before start
+      # Allow Hub to talk to Docker to spawn user containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - jupyterhub
+
+networks:
+  jupyterhub:
+    name: jupyterhub
+    driver: bridge
+

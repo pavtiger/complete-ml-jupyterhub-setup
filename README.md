@@ -5,9 +5,17 @@ My favourite way to setup jupyterhub for ML: auth via GitHub, docker launcher wi
 ## Configuring
 Copy `config.py.example` to `config.py` and change fields.
 
+Build source docker container for jupyter
+```shell
+cd docker-jupyter-cuda
+make build/pytorch-notebook-cuda
+```
+
 Build the template image for each user
 ```shell
 docker build -t jupyter_custom_notebook -f template.Dockerfile .
+# with version
+docker build --build-arg BASE_VERSION=cuda12.4.1-cudnn-devel-ubuntu22.04-py3.10 -t jupyter_custom_notebook:cuda12.4.1-cudnn-devel-ubuntu22.04-py3.10 -f template.Dockerfile .
 ```
 
 
