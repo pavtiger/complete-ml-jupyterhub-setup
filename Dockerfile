@@ -13,6 +13,9 @@ RUN pip3 install jupyter_scheduler jupyterlab-git dockerspawner
 # Themes and plugins:
 RUN pip3 install jupyterlab_materialdarker theme-darcula jupyterlab_latex jupyterlab-spellchecker
 
+# Python useful stuff
+RUN pip3 install tqdm opencv-python
+
 COPY config.py /srv/jupyterhub/custom_config.py
 # COPY user_config.yml /srv/jupyterhub/user_config.yml
 COPY jupyterhub_config.py /srv/jupyterhub/jupyterhub_config.py

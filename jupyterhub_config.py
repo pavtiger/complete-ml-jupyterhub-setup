@@ -38,10 +38,7 @@ c.DockerSpawner.network_name = 'jupyterhub'
 c.DockerSpawner.notebook_dir = '/workdir'
 c.DockerSpawner.extra_host_config = {
     'runtime': 'nvidia',
-    "shm_size": "16g",
-    "port_bindings": {
-        6006: 6006
-    }
+    "shm_size": "16g"
 }
 
 # we need the hub to listen on all ips when it is in a container
